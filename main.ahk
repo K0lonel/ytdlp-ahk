@@ -2,6 +2,11 @@
 #SingleInstance Force
 SetWorkingDir(A_ScriptDir)
 
+; Ensure the tools directory exists and extract pre-packaged binaries if compiled
+DirCreate("lib/yt-dlp")
+FileInstall("lib/yt-dlp/yt-dlp.exe", "lib/yt-dlp/yt-dlp.exe", 0)
+FileInstall("lib/yt-dlp/ffmpeg.exe", "lib/yt-dlp/ffmpeg.exe", 0)
+
 ; Include WebViewToo library files
 #Include lib/WebView2/WebViewToo.ahk
 FileEncoding "UTF-8"
