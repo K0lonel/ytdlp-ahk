@@ -1,0 +1,36 @@
+# Windows thumbnail cache and files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# AutoHotkey
+# Ignore compiled executables if they are generated
+*.exe
+
+# VS Code settings
+.vscode/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+
+# Downloaded media files
+*.mp4
+*.mkv
+*.webm
+*.mp3
+*.m4a
+*.opus
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.aria2
+
+# Nuxt / Node dependencies & build outputs
+frontend/node_modules/
+frontend/.nuxt/
+frontend/.output/
+
