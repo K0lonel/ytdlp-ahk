@@ -62,7 +62,7 @@ const videoFormat = ref('mp4')
 const isPlaylist = ref(false)
 const playlistAll = ref(true)
 const playlistRange = ref([1, 3])
-const outputDir = ref('D:\\scripts\\ytdlp-ahk\\yt-download')
+const outputDir = ref('../../../yt-download')
 const embedThumbnail = ref(true)
 const addMetadata = ref(true)
 
@@ -132,7 +132,7 @@ const metaAlbum = ref('')
 const metaYear = ref('')
 const metaGenre = ref('')
 const coverPath = ref('')
-const editOutputDir = ref('D:\\scripts\\ytdlp-ahk\\yt-download')
+const editOutputDir = ref('../../../yt-download')
 
 const processState = ref({
   active: false,
@@ -360,9 +360,9 @@ const triggerProcess = () => {
 </script>
 
 <template>
-  <div class="h-[calc(100vh-35px)] flex flex-col bg-neutral-700 overflow-hidden font-sans">
+  <div class="h-[calc(100vh-35px)] flex flex-col bg-neutral-950 overflow-hidden font-sans">
     <!-- Navigation Tabs -->
-    <div class="flex items-center justify-between px-6 bg-neutral-800 border-b border-neutral-600 shrink-0">
+    <div class="flex items-center justify-between px-6 bg-neutral-900 border-b border-neutral-800 shrink-0">
       <div class="flex gap-4">
         <button
           class="py-4 px-3 font-medium text-sm border-b-2 transition-colors flex items-center gap-2"
@@ -398,7 +398,7 @@ const triggerProcess = () => {
         'bg-green-950/40 border-green-800 text-green-200': notification.type === 'success',
         'bg-red-950/40 border-red-800 text-red-200': notification.type === 'error',
         'bg-yellow-950/40 border-yellow-800 text-yellow-200': notification.type === 'warning',
-        'bg-neutral-800 border-neutral-600 text-neutral-200': notification.type === 'info'
+        'bg-neutral-900 border-neutral-800 text-neutral-200': notification.type === 'info'
       }"
     >
       <UIcon
@@ -424,7 +424,7 @@ const triggerProcess = () => {
             <!-- DOWNLOAD TAB -->
             <div v-if="activeTab === 'download'" class="space-y-6 animate-fadeIn">
               <!-- Input URL Card -->
-              <div class="bg-neutral-800 border border-neutral-600 rounded-xl p-6 shadow-xl space-y-4">
+              <div class="bg-neutral-900 border border-neutral-800 rounded-xl p-6 shadow-xl space-y-4">
                 <div class="space-y-1.5">
                   <div class="flex justify-between items-center">
                     <label class="text-xs font-bold uppercase tracking-wider text-neutral-400">YouTube URL</label>
@@ -437,7 +437,7 @@ const triggerProcess = () => {
                           :disabled="downloadState.active"
                         />
                         
-                        <span v-if="!playlistAll" class="h-4 w-px bg-neutral-600 mx-1"></span>
+                        <span v-if="!playlistAll" class="h-4 w-px bg-neutral-800 mx-1"></span>
 
                         <div v-if="!playlistAll" class="flex items-center gap-1.5 animate-fadeIn">
                           <span class="text-[10px] text-neutral-500 font-bold uppercase whitespace-nowrap">Range:</span>
@@ -506,8 +506,8 @@ const triggerProcess = () => {
               </div>
 
               <!-- Settings Card -->
-              <div class="bg-neutral-800 border border-neutral-600 rounded-xl p-6 shadow-xl space-y-6">
-                <h3 class="text-sm font-bold uppercase tracking-widest text-neutral-400 border-b border-neutral-600 pb-2 flex items-center gap-2">
+              <div class="bg-neutral-900 border border-neutral-800 rounded-xl p-6 shadow-xl space-y-6">
+                <h3 class="text-sm font-bold uppercase tracking-widest text-neutral-400 border-b border-neutral-800 pb-2 flex items-center gap-2">
                   <UIcon name="i-lucide-sliders" class="w-4 h-4 text-primary" /> Settings
                 </h3>
 
@@ -565,8 +565,8 @@ const triggerProcess = () => {
                 </div>
 
                 <!-- Options Toggles -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-neutral-600 pt-4">
-                  <div class="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-700">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-neutral-800 pt-4">
+                  <div class="flex items-center justify-between p-3 bg-neutral-950 rounded-lg border border-neutral-800">
                     <div>
                       <h4 class="text-xs font-semibold">Embed Thumbnail</h4>
                       <p class="text-[10px] text-neutral-400 mt-0.5">Attach YouTube cover as track art</p>
@@ -574,7 +574,7 @@ const triggerProcess = () => {
                     <USwitch v-model="embedThumbnail" :disabled="downloadState.active" />
                   </div>
 
-                  <div class="flex items-center justify-between p-3 bg-neutral-900 rounded-lg border border-neutral-700">
+                  <div class="flex items-center justify-between p-3 bg-neutral-950 rounded-lg border border-neutral-800">
                     <div>
                       <h4 class="text-xs font-semibold">Embed Metadata</h4>
                       <p class="text-[10px] text-neutral-400 mt-0.5">Write track info, uploader & year</p>
@@ -601,13 +601,13 @@ const triggerProcess = () => {
             <!-- METADATA EDITOR & CONVERTER TAB -->
             <div v-if="activeTab === 'editor'" class="space-y-6 animate-fadeIn">
               <!-- Processing Status Card (Shown first when active) -->
-              <div v-if="processState.active" class="bg-neutral-800 border border-neutral-600 rounded-xl p-6 shadow-xl flex items-center justify-center gap-3">
+              <div v-if="processState.active" class="bg-neutral-900 border border-neutral-800 rounded-xl p-6 shadow-xl flex items-center justify-center gap-3">
                 <UIcon name="i-lucide-refresh-cw" class="w-5 h-5 text-primary animate-spin" />
                 <span class="font-bold text-sm text-neutral-200">{{ processState.status }}</span>
               </div>
 
               <!-- Input File Card -->
-              <div class="bg-neutral-800 border border-neutral-600 rounded-xl p-6 shadow-xl space-y-4">
+              <div class="bg-neutral-900 border border-neutral-800 rounded-xl p-6 shadow-xl space-y-4">
                 <div class="space-y-1.5">
                   <label class="text-xs font-bold uppercase tracking-wider text-neutral-400">Source Media File</label>
                   <div class="flex gap-2">
@@ -634,8 +634,8 @@ const triggerProcess = () => {
               </div>
 
               <!-- Configuration Card -->
-              <div class="bg-neutral-800 border border-neutral-600 rounded-xl p-6 shadow-xl space-y-6">
-                <h3 class="text-sm font-bold uppercase tracking-widest text-neutral-400 border-b border-neutral-600 pb-2 flex items-center gap-2">
+              <div class="bg-neutral-900 border border-neutral-800 rounded-xl p-6 shadow-xl space-y-6">
+                <h3 class="text-sm font-bold uppercase tracking-widest text-neutral-400 border-b border-neutral-800 pb-2 flex items-center gap-2">
                   <UIcon name="i-lucide-settings" class="w-4 h-4 text-primary" /> Processing Tasks
                 </h3>
 
@@ -679,7 +679,7 @@ const triggerProcess = () => {
                 </div>
 
                 <!-- Metadata Fields -->
-                <div class="border-t border-neutral-600 pt-4 space-y-4">
+                <div class="border-t border-neutral-800 pt-4 space-y-4">
                   <h4 class="text-xs font-bold uppercase tracking-wider text-neutral-400 mb-2">Write Metadata tags</h4>
                   
                   <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -734,7 +734,7 @@ const triggerProcess = () => {
                 </div>
 
                 <!-- Target Output Directory -->
-                <div class="border-t border-neutral-600 pt-4 space-y-1.5">
+                <div class="border-t border-neutral-800 pt-4 space-y-1.5">
                   <label class="text-xs font-bold uppercase tracking-wider text-neutral-400">Output Folder</label>
                   <div class="flex gap-2">
                     <UInput
@@ -777,8 +777,8 @@ const triggerProcess = () => {
 
           <!-- Right Column: Output Console & Download Info -->
           <div class="lg:col-span-5 space-y-4">
-            <div class="bg-neutral-800 border border-neutral-600 rounded-xl p-4 shadow-xl space-y-2 font-mono text-xs h-[400px] flex flex-col">
-              <div class="flex justify-between items-center text-neutral-400 border-b border-neutral-600 pb-1.5 mb-2 shrink-0">
+            <div class="bg-neutral-950 border border-neutral-800 rounded-xl p-4 shadow-xl space-y-2 font-mono text-xs h-[400px] flex flex-col">
+              <div class="flex justify-between items-center text-neutral-400 border-b border-neutral-800 pb-1.5 mb-2 shrink-0">
                 <span class="flex items-center gap-1.5">
                   <UIcon name="i-lucide-terminal" class="w-3.5 h-3.5 animate-pulse text-primary" v-if="downloadState.active || processState.active" />
                   <UIcon name="i-lucide-terminal" class="w-3.5 h-3.5" v-else />
@@ -794,7 +794,7 @@ const triggerProcess = () => {
                   Clear Log
                 </UButton>
               </div>
-              <div ref="consoleBox" class="grow overflow-y-auto space-y-1 scrollbar-thin scrollbar-thumb-neutral-700 scrollbar-track-transparent">
+              <div ref="consoleBox" class="grow overflow-y-auto space-y-1 scrollbar-thin scrollbar-thumb-neutral-800 scrollbar-track-transparent">
                 <div v-for="(line, idx) in logMessages" :key="idx" class="whitespace-pre-wrap leading-relaxed select-text font-mono text-left">
                   {{ line }}
                 </div>
@@ -806,14 +806,14 @@ const triggerProcess = () => {
             </div>
 
             <!-- Downloading Status Card (Shown under the console when downloading) -->
-            <div v-if="downloadState.active" class="bg-neutral-800 border border-neutral-600 rounded-xl p-4 shadow-xl space-y-3 animate-fadeIn">
+            <div v-if="downloadState.active" class="bg-neutral-900 border border-neutral-800 rounded-xl p-4 shadow-xl space-y-3 animate-fadeIn">
               <div class="flex items-center justify-between text-xs text-neutral-400">
                 <span class="flex items-center gap-1.5 text-primary font-bold animate-pulse">
                   <UIcon name="i-lucide-refresh-cw" class="w-3.5 h-3.5 animate-spin" />
                   {{ downloadState.status || 'Downloading...' }}
                 </span>
                 <div class="flex items-center gap-2.5 font-bold text-neutral-200">
-                  <span v-if="playlistTotal > 0" class="text-xs text-neutral-400 font-semibold bg-neutral-900 px-2 py-0.5 rounded border border-neutral-700">
+                  <span v-if="playlistTotal > 0" class="text-xs text-neutral-400 font-semibold bg-neutral-950 px-2 py-0.5 rounded border border-neutral-800">
                     {{ playlistIndex }}/{{ playlistTotal }}
                   </span>
                   <span>{{ downloadState.percent }}%</span>
@@ -824,7 +824,7 @@ const triggerProcess = () => {
               <UProgress :value="downloadState.percent" color="primary" class="h-2" />
 
               <!-- Stats Block (4 Columns: Speed, Time, ETA, Size) -->
-              <div class="grid grid-cols-4 gap-2 pt-2 text-center border-t border-neutral-700">
+              <div class="grid grid-cols-4 gap-2 pt-2 text-center border-t border-neutral-800">
                 <div>
                   <p class="text-[9px] uppercase font-bold text-neutral-400">Speed</p>
                   <p class="text-xs font-semibold text-neutral-200 mt-0.5">{{ downloadState.speed || '-' }}</p>
@@ -849,7 +849,7 @@ const triggerProcess = () => {
 
         <!-- Rules Tab Layout (Single Column) -->
         <div v-else-if="activeTab === 'rules'" class="max-w-2xl mx-auto space-y-6 animate-fadeIn">
-          <div class="bg-neutral-800 border border-neutral-600 rounded-xl p-6 shadow-xl space-y-4">
+          <div class="bg-neutral-900 border border-neutral-800 rounded-xl p-6 shadow-xl space-y-4">
             <div>
               <h3 class="text-sm font-bold uppercase tracking-widest text-neutral-400 flex items-center gap-2">
                 <UIcon name="i-lucide-settings-2" class="w-4 h-4 text-primary" /> Filename Renaming Rules
@@ -861,7 +861,7 @@ const triggerProcess = () => {
 
             <!-- Rules List -->
             <div class="space-y-3">
-              <div v-for="(rule, idx) in rules" :key="idx" class="flex gap-2 items-center p-3 bg-neutral-900 rounded-lg border border-neutral-700">
+              <div v-for="(rule, idx) in rules" :key="idx" class="flex gap-2 items-center p-3 bg-neutral-950 rounded-lg border border-neutral-800">
                 <div class="grow grid grid-cols-2 gap-3">
                   <div class="space-y-1">
                     <span class="text-[10px] text-neutral-500 font-bold uppercase">Pattern (Regex)</span>
