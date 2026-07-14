@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, watch, nextTick } from 'vue'
+import { ref, onMounted, watch, nextTick, computed } from 'vue'
 
 // UI State
 const activeTab = ref('download') // 'download' | 'editor' | 'rules'
@@ -46,12 +46,18 @@ const resetRules = () => {
 }
 
 // Toast/Alert Notifications
-const notification = ref({ show: false, title: '', message: '', type: 'info' })
+const toast = useToast()
 const showNotification = (title, message, type = 'info') => {
-  notification.value = { show: true, title, message, type }
-  setTimeout(() => {
-    notification.value.show = false
-  }, 6000)
+  let toastColor = 'primary'
+  if (type === 'success') toastColor = 'success'
+  else if (type === 'error') toastColor = 'danger'
+  else if (type === 'warning') toastColor = 'warning'
+
+  toast.add({
+    title: title,
+    description: message,
+    color: toastColor
+  })
 }
 
 // Download Tab State
@@ -66,17 +72,343 @@ const outputDir = ref('../../../yt-download')
 const embedThumbnail = ref(true)
 const addMetadata = ref(true)
 
+// Crop Section State
+const enableSection = ref(false)
+const sectionRange = ref([0, 100])
+const videoDuration = ref(0)
+const videoTitle = ref('')
+const isLoadingInfo = ref(false)
+const startStr = ref('00:00')
+const endStr = ref('00:00')
+
+// YouTube Preview Embed Computed Properties
+const youtubeId = computed(() => {
+  if (!downloadUrl.value) return null
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/
+  const match = downloadUrl.value.match(regExp)
+  return (match && match[2].length === 11) ? match[2] : null
+})
+
+const embedUrl = computed(() => {
+  if (!youtubeId.value) return null
+  return `https://www.youtube.com/embed/${youtubeId.value}?enablejsapi=1`
+})
+
+// Playlist State
+const playlistVideos = ref([])
+const selectedPlaylistIndices = ref([])
+const expandedPlaylistIndex = ref(null)
+const isPlaylistLoading = ref(false)
+const selectAllPlaylist = ref(true)
+const playlistCropRanges = ref({})
+const downloadQueue = ref([])
+const isQueueDownloading = ref(false)
+
+const visiblePlaylistCount = ref(30)
+const visiblePlaylistVideos = computed(() => {
+  return playlistVideos.value.slice(0, visiblePlaylistCount.value)
+})
+
+const onPlaylistScroll = (event) => {
+  const { scrollTop, scrollHeight, clientHeight } = event.target
+  if (scrollHeight - scrollTop - clientHeight < 50) {
+    if (visiblePlaylistCount.value < playlistVideos.value.length) {
+      visiblePlaylistCount.value = Math.min(
+        visiblePlaylistCount.value + 30,
+        playlistVideos.value.length
+      )
+    }
+  }
+}
+
+let fetchInfoTimeout = null
+
+const formatDuration = (sec) => {
+  if (isNaN(sec) || sec < 0) return '00:00'
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  const s = Math.floor(sec % 60)
+  if (h > 0) {
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  }
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
+const parseTimeToSeconds = (val) => {
+  if (typeof val === 'number') return val
+  if (!val) return 0
+  const parts = val.split(':').map(Number)
+  if (parts.length === 3) {
+    return parts[0] * 3600 + parts[1] * 60 + parts[2]
+  } else if (parts.length === 2) {
+    return parts[0] * 60 + parts[1]
+  } else if (parts.length === 1) {
+    return parts[0] || 0
+  }
+  return 0
+}
+
+const updateRangeFromInputs = () => {
+  const startSec = parseTimeToSeconds(startStr.value)
+  const endSec = parseTimeToSeconds(endStr.value)
+  const newStart = Math.max(0, Math.min(startSec, videoDuration.value))
+  const newEnd = Math.max(newStart, Math.min(endSec, videoDuration.value))
+  sectionRange.value = [newStart, newEnd]
+}
+
+const fetchVideoInfo = () => {
+  if (!downloadUrl.value || isPlaylist.value) return
+  isLoadingInfo.value = true
+  videoTitle.value = ''
+  videoDuration.value = 0
+  enableSection.value = false
+  if (window.chrome?.webview?.hostObjects) {
+    window.chrome.webview.hostObjects.getVideoInfo(downloadUrl.value)
+  } else {
+    // Mock for browser testing
+    setTimeout(() => {
+      window.onVideoInfoSuccess('Sample YouTube Video Title', '345')
+    }, 1000)
+  }
+}
+
+const resetPlaylistState = () => {
+  playlistVideos.value = []
+  selectedPlaylistIndices.value = []
+  expandedPlaylistIndex.value = null
+  isPlaylistLoading.value = false
+  selectAllPlaylist.value = true
+  playlistCropRanges.value = {}
+  visiblePlaylistCount.value = 30
+}
+
+const fetchPlaylistInfo = () => {
+  if (!downloadUrl.value) return
+  isPlaylistLoading.value = true
+  playlistVideos.value = []
+  playlistCropRanges.value = {}
+  if (window.chrome?.webview?.hostObjects) {
+    window.chrome.webview.hostObjects.getPlaylistInfo(downloadUrl.value)
+  } else {
+    // Mock for browser testing
+    setTimeout(() => {
+      window.onPlaylistInfoSuccess([
+        {
+          id: 'yPYZpwSpKmA',
+          title: 'Coldplay - The Scientist (Official 4K Video)',
+          duration: 260,
+          duration_string: '4:20',
+          uploader: 'Coldplay',
+          thumbnails: [{ url: 'https://i.ytimg.com/vi/yPYZpwSpKmA/hqdefault.jpg' }]
+        },
+        {
+          id: 'yPYZpwSpKmA',
+          title: 'Coldplay - Yellow (Official 4K Video)',
+          duration: 268,
+          duration_string: '4:28',
+          uploader: 'Coldplay',
+          thumbnails: [{ url: 'https://i.ytimg.com/vi/yPYZpwSpKmA/hqdefault.jpg' }]
+        }
+      ])
+    }, 1500)
+  }
+}
+
+const toggleSelectAllPlaylist = (val) => {
+  selectAllPlaylist.value = val
+  if (val) {
+    selectedPlaylistIndices.value = playlistVideos.value.map((_, i) => i + 1)
+  } else {
+    selectedPlaylistIndices.value = []
+  }
+}
+
+const togglePlaylistItem = (index, isChecked) => {
+  if (isChecked) {
+    if (!selectedPlaylistIndices.value.includes(index)) {
+      selectedPlaylistIndices.value.push(index)
+    }
+  } else {
+    selectedPlaylistIndices.value = selectedPlaylistIndices.value.filter(i => i !== index)
+  }
+}
+
+watch(selectedPlaylistIndices, (newVal) => {
+  if (playlistVideos.value.length === 0) {
+    selectAllPlaylist.value = false
+  } else {
+    selectAllPlaylist.value = newVal.length === playlistVideos.value.length
+  }
+}, { deep: true })
+
+const toggleExpandVideo = async (index) => {
+  if (expandedPlaylistIndex.value === index) {
+    expandedPlaylistIndex.value = null
+  } else {
+    expandedPlaylistIndex.value = index
+    const video = playlistVideos.value[index - 1]
+    if (!playlistCropRanges.value[index]) {
+      playlistCropRanges.value[index] = {
+        enableSection: false,
+        range: [0, video.duration || 100],
+        startStr: '00:00',
+        endStr: formatDuration(video.duration || 100)
+      }
+    }
+
+    await nextTick()
+    const el = document.getElementById(`playlist-item-${index}`)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+  }
+}
+
+const onPlaylistSectionToggle = async (index, val) => {
+  if (val) {
+    await nextTick()
+    const el = document.getElementById(`playlist-item-${index}`)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+  }
+}
+
+const onPlaylistSliderChange = (index, newRange) => {
+  const crop = playlistCropRanges.value[index]
+  if (!crop) return
+  
+  const oldRange = crop.range
+  let seekTarget = newRange[0]
+  if (oldRange && oldRange.length === 2) {
+    if (newRange[0] !== oldRange[0]) {
+      seekTarget = newRange[0]
+    } else if (newRange[1] !== oldRange[1]) {
+      seekTarget = newRange[1]
+    }
+  }
+  
+  const iframe = document.getElementById('yt-player-iframe')
+  if (iframe && iframe.contentWindow) {
+    iframe.contentWindow.postMessage(JSON.stringify({
+      event: 'command',
+      func: 'seekTo',
+      args: [seekTarget, true]
+    }), '*')
+  }
+  
+  crop.range = newRange
+  crop.startStr = formatDuration(newRange[0])
+  crop.endStr = formatDuration(newRange[1])
+}
+
+const onPlaylistInputChange = (index) => {
+  const crop = playlistCropRanges.value[index]
+  if (!crop) return
+  const video = playlistVideos.value[index - 1]
+  const dur = video.duration || 100
+  
+  const startSec = parseTimeToSeconds(crop.startStr)
+  const endSec = parseTimeToSeconds(crop.endStr)
+  
+  const newStart = Math.max(0, Math.min(startSec, dur))
+  const newEnd = Math.max(newStart, Math.min(endSec, dur))
+  
+  crop.range = [newStart, newEnd]
+  crop.startStr = formatDuration(newStart)
+  crop.endStr = formatDuration(newEnd)
+  
+  const iframe = document.getElementById('yt-player-iframe')
+  if (iframe && iframe.contentWindow) {
+    iframe.contentWindow.postMessage(JSON.stringify({
+      event: 'command',
+      func: 'seekTo',
+      args: [newStart, true]
+    }), '*')
+  }
+}
+
+const resetVideoState = () => {
+  videoDuration.value = 0
+  videoTitle.value = ''
+  enableSection.value = false
+}
+
 watch(downloadUrl, (newUrl) => {
   if (newUrl) {
-    if (newUrl.includes('list=') || newUrl.includes('/playlist')) {
-      isPlaylist.value = true
+    const hasPlaylist = newUrl.includes('list=') || newUrl.includes('/playlist')
+    if (hasPlaylist) {
+      if (isPlaylist.value === true) {
+        if (fetchInfoTimeout) clearTimeout(fetchInfoTimeout)
+        fetchInfoTimeout = setTimeout(() => {
+          fetchPlaylistInfo()
+        }, 1000)
+      } else {
+        isPlaylist.value = true
+      }
     } else {
-      isPlaylist.value = false
+      if (isPlaylist.value === false) {
+        if (fetchInfoTimeout) clearTimeout(fetchInfoTimeout)
+        fetchInfoTimeout = setTimeout(() => {
+          fetchVideoInfo()
+        }, 1000)
+      } else {
+        isPlaylist.value = false
+      }
     }
+  } else {
+    resetPlaylistState()
+    resetVideoState()
+    if (fetchInfoTimeout) clearTimeout(fetchInfoTimeout)
   }
 })
 
+watch(isPlaylist, (newVal) => {
+  if (!downloadUrl.value) return
+  if (newVal) {
+    resetVideoState()
+    if (fetchInfoTimeout) clearTimeout(fetchInfoTimeout)
+    fetchInfoTimeout = setTimeout(() => {
+      fetchPlaylistInfo()
+    }, 500)
+  } else {
+    resetPlaylistState()
+    if (fetchInfoTimeout) clearTimeout(fetchInfoTimeout)
+    fetchInfoTimeout = setTimeout(() => {
+      fetchVideoInfo()
+    }, 500)
+  }
+})
+
+watch(sectionRange, (newRange, oldRange) => {
+  startStr.value = formatDuration(newRange[0])
+  endStr.value = formatDuration(newRange[1])
+  
+  const iframe = document.getElementById('yt-player-iframe')
+  if (iframe && iframe.contentWindow) {
+    try {
+      let seekTarget = newRange[0]
+      if (oldRange && oldRange.length === 2) {
+        if (newRange[0] !== oldRange[0]) {
+          seekTarget = newRange[0]
+        } else if (newRange[1] !== oldRange[1]) {
+          seekTarget = newRange[1]
+        }
+      }
+      
+      iframe.contentWindow.postMessage(JSON.stringify({
+        event: 'command',
+        func: 'seekTo',
+        args: [seekTarget, true]
+      }), '*')
+    } catch (e) {
+      console.error("Seek postMessage error:", e)
+    }
+  }
+}, { immediate: true, deep: true })
+
 const consoleBox = ref(null)
+const pageContainer = ref(null)
 
 watch(logMessages, () => {
   if (consoleBox.value) {
@@ -86,6 +418,7 @@ watch(logMessages, () => {
   }
 }, { deep: true })
 
+// Download Progress & Info State
 const downloadState = ref({
   active: false,
   percent: 0,
@@ -122,9 +455,9 @@ const stopDownloadTimer = () => {
   }
 }
 
-// Editor Tab State
+// Media Converter / Editor State
 const mediaPath = ref('')
-const editAction = ref('metadata') // 'metadata' | 'convert'
+const editAction = ref('convert') // 'metadata' | 'convert'
 const convertFormat = ref('mp3')
 const metaTitle = ref('')
 const metaArtist = ref('')
@@ -141,6 +474,15 @@ const processState = ref({
 
 // Callbacks from AutoHotkey (registered globally)
 onMounted(() => {
+  window.setInitialDir = (path) => {
+    outputDir.value = path
+    editOutputDir.value = path
+  }
+
+  if (window.initialDir) {
+    window.setInitialDir(window.initialDir)
+  }
+
   // Load Rules
   const savedRules = localStorage.getItem('ytdlp_rename_rules')
   if (savedRules) {
@@ -173,62 +515,64 @@ onMounted(() => {
     editOutputDir.value = path
   }
 
-  window.setInitialDir = (path) => {
-    outputDir.value = path
-    editOutputDir.value = path
-  }
-
-  if (window.initialDir) {
-    window.setInitialDir(window.initialDir)
-  }
-
-  window.onFileSelected = (type, path) => {
+  window.onFileSelected = (path, type) => {
     if (type === 'media') {
       mediaPath.value = path
-      // Extract file name without extension to pre-fill metadata title
+      // Extract filename without path and extension as default Title tag
       const parts = path.split('\\')
-      const fileName = parts[parts.length - 1]
-      const dotIndex = fileName.lastIndexOf('.')
-      metaTitle.value = dotIndex !== -1 ? fileName.substring(0, dotIndex) : fileName
-    } else if (type === 'cover') {
+      const fileNameWithExt = parts[parts.length - 1]
+      const extIdx = fileNameWithExt.lastIndexOf('.')
+      const fileName = extIdx !== -1 ? fileNameWithExt.substring(0, extIdx) : fileNameWithExt
+      metaTitle.value = fileName
+    } else {
       coverPath.value = path
     }
   }
 
-  window.onDownloadProgress = (percent, totalSize, speed, eta, status = '') => {
-    downloadState.value = {
-      active: true,
-      percent: parseFloat(percent) || 0,
-      totalSize: totalSize || 'Unknown size',
-      speed: speed || '--',
-      eta: eta || '--',
-      status: status || 'Downloading...'
-    }
+  window.onDownloadProgress = (percentage, size, speed, eta) => {
+    downloadState.value.percent = Math.floor(parseFloat(percentage)) || 0
+    downloadState.value.totalSize = size || 'Connecting...'
+    downloadState.value.speed = speed || '--'
+    downloadState.value.eta = eta || '--'
   }
 
   window.onDownloadComplete = (pathsStr = '') => {
-    stopDownloadTimer()
-    downloadState.value.active = false
-    downloadUrl.value = ''
-    if (pathsStr) {
-      const paths = pathsStr.split('|')
-      if (paths.length === 1) {
-        const parts = paths[0].split('\\')
-        const fileName = parts[parts.length - 1]
-        showNotification('Success!', `Downloaded and renamed to: ${fileName}`, 'success')
-      } else {
-        const files = paths.map(p => {
-          const parts = p.split('\\')
-          return parts[parts.length - 1]
-        })
-        showNotification('Success!', `Downloaded and renamed ${files.length} files:\n${files.join('\n')}`, 'success')
-      }
+    // Process next queue item
+    if (downloadQueue.value.length > 0) {
+      downloadQueue.value.shift()
+    }
+    
+    if (downloadQueue.value.length > 0) {
+      runNextQueueItem()
     } else {
-      showNotification('Success!', 'Download completed successfully!', 'success')
+      isQueueDownloading.value = false
+      stopDownloadTimer()
+      downloadState.value.active = false
+      downloadState.value.percent = 100
+      downloadState.value.status = 'Download complete!'
+      
+      if (pathsStr) {
+        const paths = pathsStr.split('|')
+        if (paths.length === 1) {
+          const parts = paths[0].split('\\')
+          const fileName = parts[parts.length - 1]
+          showNotification('Success!', `Downloaded and renamed to: ${fileName}`, 'success')
+        } else {
+          const files = paths.map(p => {
+            const parts = p.split('\\')
+            return parts[parts.length - 1]
+          })
+          showNotification('Success!', `Downloaded and renamed ${files.length} files:\n${files.join('\n')}`, 'success')
+        }
+      } else {
+        showNotification('Success!', 'Download completed successfully!', 'success')
+      }
     }
   }
 
   window.onDownloadError = (message) => {
+    downloadQueue.value = []
+    isQueueDownloading.value = false
     stopDownloadTimer()
     downloadState.value.active = false
     showNotification('Download Failed', message, 'error')
@@ -251,6 +595,47 @@ onMounted(() => {
   window.onProcessError = (message) => {
     processState.value.active = false
     showNotification('Processing Failed', message, 'error')
+  }
+
+  window.onVideoInfoSuccess = async (title, durationStr) => {
+    isLoadingInfo.value = false
+    const dur = Math.floor(parseFloat(durationStr)) || 0
+    videoTitle.value = title
+    videoDuration.value = dur
+    sectionRange.value = [0, dur]
+
+    await nextTick()
+    const card = document.getElementById('video-info-card')
+    if (card) {
+      card.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }
+
+  window.onVideoInfoError = (err) => {
+    isLoadingInfo.value = false
+    console.error("Failed to fetch video details:", err)
+    videoDuration.value = 0
+    videoTitle.value = ''
+  }
+
+  window.onPlaylistInfoSuccess = async (videos) => {
+    isPlaylistLoading.value = false
+    playlistVideos.value = videos
+    visiblePlaylistCount.value = Math.min(30, videos.length)
+    selectedPlaylistIndices.value = videos.map((_, i) => i + 1)
+    selectAllPlaylist.value = true
+
+    await nextTick()
+    const card = document.getElementById('playlist-videos-card')
+    if (card) {
+      card.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }
+
+  window.onPlaylistInfoError = (err) => {
+    isPlaylistLoading.value = false
+    showNotification('Playlist Error', err, 'error')
+    playlistVideos.value = []
   }
 })
 
@@ -284,6 +669,85 @@ const triggerDownload = () => {
     return
   }
 
+  if (pageContainer.value) {
+    pageContainer.value.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  downloadQueue.value = []
+  isQueueDownloading.value = true
+
+  if (!isPlaylist.value) {
+    const task = {
+      url: downloadUrl.value,
+      format: downloadFormat.value,
+      audioFormat: audioFormat.value,
+      videoFormat: videoFormat.value,
+      isPlaylist: false,
+      enableSection: enableSection.value,
+      sectionRange: sectionRange.value,
+      rules: rules.value,
+      outputDir: outputDir.value,
+      embedThumbnail: embedThumbnail.value,
+      addMetadata: addMetadata.value
+    }
+    downloadQueue.value.push(task)
+  } else {
+    const nonCroppedIndices = []
+    const croppedTasks = []
+
+    selectedPlaylistIndices.value.forEach(idx => {
+      const video = playlistVideos.value[idx - 1]
+      const crop = playlistCropRanges.value[idx]
+
+      if (crop && crop.enableSection) {
+        croppedTasks.push({
+          url: `https://www.youtube.com/watch?v=${video.id}`,
+          format: downloadFormat.value,
+          audioFormat: audioFormat.value,
+          videoFormat: videoFormat.value,
+          isPlaylist: false,
+          enableSection: true,
+          sectionRange: crop.range,
+          rules: rules.value,
+          outputDir: outputDir.value,
+          embedThumbnail: embedThumbnail.value,
+          addMetadata: addMetadata.value,
+          batchLabel: `Item ${idx}: ${video.title}`
+        })
+      } else {
+        nonCroppedIndices.push(idx)
+      }
+    })
+
+    if (nonCroppedIndices.length > 0) {
+      downloadQueue.value.push({
+        url: downloadUrl.value,
+        format: downloadFormat.value,
+        audioFormat: audioFormat.value,
+        videoFormat: videoFormat.value,
+        isPlaylist: true,
+        playlistAll: false,
+        playlistItems: nonCroppedIndices.sort((a, b) => a - b).join(','),
+        enableSection: false,
+        rules: rules.value,
+        outputDir: outputDir.value,
+        embedThumbnail: embedThumbnail.value,
+        addMetadata: addMetadata.value,
+        batchLabel: `Playlist Items [${nonCroppedIndices.join(', ')}]`
+      })
+    }
+
+    croppedTasks.forEach(task => {
+      downloadQueue.value.push(task)
+    })
+  }
+
+  if (downloadQueue.value.length === 0) {
+    isQueueDownloading.value = false
+    showNotification('No Items Selected', 'Please select at least one playlist item to download.', 'warning')
+    return
+  }
+
   startDownloadTimer()
 
   downloadState.value = {
@@ -295,18 +759,22 @@ const triggerDownload = () => {
     status: 'Initializing yt-dlp...'
   }
 
-  const config = {
-    url: downloadUrl.value,
-    format: downloadFormat.value,
-    audioFormat: audioFormat.value,
-    videoFormat: videoFormat.value,
-    isPlaylist: isPlaylist.value,
-    playlistAll: playlistAll.value,
-    playlistRange: playlistRange.value,
-    rules: rules.value,
-    outputDir: outputDir.value,
-    embedThumbnail: embedThumbnail.value,
-    addMetadata: addMetadata.value
+  runNextQueueItem()
+}
+
+const runNextQueueItem = () => {
+  if (downloadQueue.value.length === 0) {
+    isQueueDownloading.value = false
+    stopDownloadTimer()
+    downloadState.value.active = false
+    return
+  }
+
+  const config = downloadQueue.value[0]
+  if (config.batchLabel) {
+    downloadState.value.status = `Downloading: ${config.batchLabel}`
+  } else {
+    downloadState.value.status = 'Initializing yt-dlp...'
   }
 
   if (window.chrome?.webview?.hostObjects) {
@@ -314,12 +782,9 @@ const triggerDownload = () => {
   } else {
     // Mock for browser
     setTimeout(() => {
-      window.onDownloadProgress(35, '15.4MiB', '4.2MiB/s', '00:03')
+      window.onDownloadProgress(100, '15.4MiB', '4.2MiB/s', '00:03')
       setTimeout(() => {
-        window.onDownloadProgress(80, '15.4MiB', '3.8MiB/s', '00:01')
-        setTimeout(() => {
-          window.onDownloadComplete()
-        }, 1500)
+        window.onDownloadComplete()
       }, 1500)
     }, 1000)
   }
@@ -335,21 +800,21 @@ const triggerProcess = () => {
   processState.value.status = 'Running FFmpeg task...'
 
   const config = {
-    filePath: mediaPath.value,
     action: editAction.value,
-    format: convertFormat.value,
-    title: metaTitle.value,
-    artist: metaArtist.value,
-    album: metaAlbum.value,
-    year: metaYear.value,
-    genre: metaGenre.value,
+    mediaPath: mediaPath.value,
+    convertFormat: convertFormat.value,
+    metaTitle: metaTitle.value,
+    metaArtist: metaArtist.value,
+    metaAlbum: metaAlbum.value,
+    metaYear: metaYear.value,
+    metaGenre: metaGenre.value,
     coverPath: coverPath.value,
-    rules: rules.value,
-    outputDir: editOutputDir.value
+    outputDir: editOutputDir.value,
+    rules: rules.value
   }
 
   if (window.chrome?.webview?.hostObjects) {
-    window.chrome.webview.hostObjects.processFile(JSON.stringify(config))
+    window.chrome.webview.hostObjects.triggerFFmpeg(JSON.stringify(config))
   } else {
     // Mock for browser
     setTimeout(() => {
@@ -386,548 +851,119 @@ const triggerProcess = () => {
           <UIcon name="i-lucide-settings-2" class="w-4 h-4" /> Renaming Rules
         </button>
       </div>
-
       <div></div>
     </div>
 
-    <!-- Notification Banner -->
-    <div
-      v-if="notification.show"
-      class="mx-6 mt-4 p-4 rounded-lg flex items-start gap-3 border transition-all duration-300"
-      :class="{
-        'bg-green-950/40 border-green-800 text-green-200': notification.type === 'success',
-        'bg-red-950/40 border-red-800 text-red-200': notification.type === 'error',
-        'bg-yellow-950/40 border-yellow-800 text-yellow-200': notification.type === 'warning',
-        'bg-neutral-900 border-neutral-800 text-neutral-200': notification.type === 'info'
-      }"
-    >
-      <UIcon
-        :name="notification.type === 'success' ? 'i-lucide-check-circle' : notification.type === 'error' ? 'i-lucide-alert-triangle' : 'i-lucide-info'"
-        class="w-5 h-5 shrink-0 mt-0.5"
-      />
-      <div>
-        <h4 class="font-bold text-sm">{{ notification.title }}</h4>
-        <p class="text-xs text-neutral-300 mt-0.5 leading-relaxed">{{ notification.message }}</p>
-      </div>
-    </div>
-
     <!-- Tab Contents (Scrollable Pane) -->
-    <div class="grow overflow-y-auto p-6">
+    <div ref="pageContainer" class="grow overflow-y-auto p-6">
       <div class="max-w-6xl mx-auto">
         
-        <!-- Two-Column Layout for Download and Editor tabs -->
-        <div v-if="activeTab === 'download' || activeTab === 'editor'" class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        <div v-if="activeTab === 'download' || activeTab === 'editor'" class="flex flex-col gap-6">
           
           <!-- Left Column: Inputs & Controls -->
-          <div class="lg:col-span-7 space-y-6">
-            
+          <div class="space-y-6 w-full">
             <!-- DOWNLOAD TAB -->
             <div v-if="activeTab === 'download'" class="space-y-6 animate-fadeIn">
-              <!-- Input URL Card -->
-              <div class="bg-neutral-900 border border-neutral-800 rounded-xl p-6 shadow-xl space-y-4">
-                <div class="space-y-1.5">
-                  <div class="flex justify-between items-center">
-                    <label class="text-xs font-bold uppercase tracking-wider text-neutral-400">YouTube URL</label>
-                    <div class="flex items-center gap-3">
-                      <!-- Playlist Range Container (Borderless) -->
-                      <div v-if="isPlaylist" class="flex items-center gap-2 text-xs transition-all duration-300 ease-out animate-fadeIn">
-                        <UCheckbox
-                          v-model="playlistAll"
-                          label="All"
-                          :disabled="downloadState.active"
-                        />
-                        
-                        <span v-if="!playlistAll" class="h-4 w-px bg-neutral-800 mx-1"></span>
+              <!-- Controls -->
+              <DownloadControls
+                v-model:downloadUrl="downloadUrl"
+                v-model:downloadFormat="downloadFormat"
+                v-model:audioFormat="audioFormat"
+                v-model:videoFormat="videoFormat"
+                v-model:isPlaylist="isPlaylist"
+                v-model:outputDir="outputDir"
+                v-model:embedThumbnail="embedThumbnail"
+                v-model:addMetadata="addMetadata"
+                :downloadActive="downloadState.active"
+                @select-directory="selectDirectory"
+                @trigger-download="triggerDownload"
+              />
 
-                        <div v-if="!playlistAll" class="flex items-center gap-1.5 animate-fadeIn">
-                          <span class="text-[10px] text-neutral-500 font-bold uppercase whitespace-nowrap">Range:</span>
-                          <UInput
-                            v-model.number="playlistRange[0]"
-                            type="number"
-                            min="1"
-                            size="xs"
-                            class="w-12 text-center"
-                            :disabled="downloadState.active"
-                          />
-                          <span class="text-neutral-500 text-xs">-</span>
-                          <UInput
-                            v-model.number="playlistRange[1]"
-                            type="number"
-                            min="1"
-                            size="xs"
-                            class="w-12 text-center"
-                            :disabled="downloadState.active"
-                          />
-                        </div>
-                      </div>
-                      <!-- Checkbox -->
-                      <UCheckbox
-                        v-model="isPlaylist"
-                        label="Playlist"
-                        :disabled="downloadState.active"
-                      />
-                    </div>
-                  </div>
-                  <UInput
-                    v-model="downloadUrl"
-                    icon="i-lucide-link"
-                    placeholder="https://www.youtube.com/watch?v=..."
-                    size="lg"
-                    class="w-full"
-                    :disabled="downloadState.active"
-                    color="primary"
-                  />
-                </div>
+              <!-- Single Video Card -->
+              <SingleVideoCard
+                v-if="!isPlaylist && (isLoadingInfo || videoTitle)"
+                v-model:enableSection="enableSection"
+                v-model:sectionRange="sectionRange"
+                v-model:startStr="startStr"
+                v-model:endStr="endStr"
+                :isLoadingInfo="isLoadingInfo"
+                :videoTitle="videoTitle"
+                :videoDuration="videoDuration"
+                :youtubeId="youtubeId"
+                :embedUrl="embedUrl"
+                :downloadActive="downloadState.active"
+                :formatDuration="formatDuration"
+                @update-range="updateRangeFromInputs"
+              />
 
-                <!-- Target Output Directory -->
-                <div class="space-y-1.5">
-                  <label class="text-xs font-bold uppercase tracking-wider text-neutral-400 font-sans">Save Destination</label>
-                  <div class="flex gap-2">
-                    <UInput
-                      v-model="outputDir"
-                      readonly
-                      placeholder="Select output folder..."
-                      class="grow"
-                      size="md"
-                      :disabled="downloadState.active"
-                    />
-                    <UButton
-                      icon="i-lucide-folder"
-                      color="neutral"
-                      variant="subtle"
-                      class="px-4"
-                      :disabled="downloadState.active"
-                      @click="selectDirectory"
-                    >
-                      Browse
-                    </UButton>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Settings Card -->
-              <div class="bg-neutral-900 border border-neutral-800 rounded-xl p-6 shadow-xl space-y-6">
-                <h3 class="text-sm font-bold uppercase tracking-widest text-neutral-400 border-b border-neutral-800 pb-2 flex items-center gap-2">
-                  <UIcon name="i-lucide-sliders" class="w-4 h-4 text-primary" /> Settings
-                </h3>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <!-- Format Choice -->
-                  <div class="space-y-2">
-                    <label class="text-xs font-semibold text-neutral-400">Download Format</label>
-                    <div class="flex gap-3">
-                      <UButton
-                        class="flex-1 justify-center py-2.5"
-                        :color="downloadFormat === 'video' ? 'primary' : 'neutral'"
-                        :variant="downloadFormat === 'video' ? 'solid' : 'outline'"
-                        icon="i-lucide-video"
-                        :disabled="downloadState.active"
-                        @click="downloadFormat = 'video'"
-                      >
-                        Video
-                      </UButton>
-                      <UButton
-                        class="flex-1 justify-center py-2.5"
-                        :color="downloadFormat === 'audio' ? 'primary' : 'neutral'"
-                        :variant="downloadFormat === 'audio' ? 'solid' : 'outline'"
-                        icon="i-lucide-music"
-                        :disabled="downloadState.active"
-                        @click="downloadFormat = 'audio'"
-                      >
-                        Audio
-                      </UButton>
-                    </div>
-                  </div>
-
-                  <!-- Extension Select (based on format choice) -->
-                  <div class="space-y-2">
-                    <template v-if="downloadFormat === 'video'">
-                      <label class="text-xs font-semibold text-neutral-400">Video Extension</label>
-                      <USelect
-                        v-model="videoFormat"
-                        :items="['mp4', 'mkv', 'webm']"
-                        size="md"
-                        class="w-full"
-                        :disabled="downloadState.active"
-                      />
-                    </template>
-                    <template v-else-if="downloadFormat === 'audio'">
-                      <label class="text-xs font-semibold text-neutral-400">Audio Extension</label>
-                      <USelect
-                        v-model="audioFormat"
-                        :items="['mp3', 'm4a', 'wav', 'opus', 'flac']"
-                        size="md"
-                        class="w-full"
-                        :disabled="downloadState.active"
-                      />
-                    </template>
-                  </div>
-                </div>
-
-                <!-- Options Toggles -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-neutral-800 pt-4">
-                  <div class="flex items-center justify-between p-3 bg-neutral-950 rounded-lg border border-neutral-800">
-                    <div>
-                      <h4 class="text-xs font-semibold">Embed Thumbnail</h4>
-                      <p class="text-[10px] text-neutral-400 mt-0.5">Attach YouTube cover as track art</p>
-                    </div>
-                    <USwitch v-model="embedThumbnail" :disabled="downloadState.active" />
-                  </div>
-
-                  <div class="flex items-center justify-between p-3 bg-neutral-950 rounded-lg border border-neutral-800">
-                    <div>
-                      <h4 class="text-xs font-semibold">Embed Metadata</h4>
-                      <p class="text-[10px] text-neutral-400 mt-0.5">Write track info, uploader & year</p>
-                    </div>
-                    <USwitch v-model="addMetadata" :disabled="downloadState.active" />
-                  </div>
-                </div>
-              </div>
-
-              <!-- Start Download Button (Only visible when not active) -->
-              <div v-if="!downloadState.active" class="space-y-4">
-                <UButton
-                  size="xl"
-                  color="primary"
-                  class="w-full py-4 justify-center text-md font-bold shadow-xl shadow-primary-950/20"
-                  icon="i-lucide-download"
-                  @click="triggerDownload"
-                >
-                  Start Download
-                </UButton>
-              </div>
+              <!-- Playlist Card -->
+              <PlaylistCard
+                v-if="isPlaylist && (isPlaylistLoading || playlistVideos.length > 0)"
+                :isPlaylistLoading="isPlaylistLoading"
+                :playlistVideos="playlistVideos"
+                :visiblePlaylistVideos="visiblePlaylistVideos"
+                :selectedPlaylistIndices="selectedPlaylistIndices"
+                :selectAllPlaylist="selectAllPlaylist"
+                :expandedPlaylistIndex="expandedPlaylistIndex"
+                :playlistCropRanges="playlistCropRanges"
+                :downloadActive="downloadState.active"
+                :formatDuration="formatDuration"
+                @toggle-select-all="toggleSelectAllPlaylist"
+                @toggle-playlist-item="togglePlaylistItem"
+                @toggle-expand-video="toggleExpandVideo"
+                @on-playlist-scroll="onPlaylistScroll"
+                @on-slider-change="onPlaylistSliderChange"
+                @on-input-change="onPlaylistInputChange"
+                @on-section-toggle="onPlaylistSectionToggle"
+              />
             </div>
 
-            <!-- METADATA EDITOR & CONVERTER TAB -->
-            <div v-if="activeTab === 'editor'" class="space-y-6 animate-fadeIn">
-              <!-- Processing Status Card (Shown first when active) -->
-              <div v-if="processState.active" class="bg-neutral-900 border border-neutral-800 rounded-xl p-6 shadow-xl flex items-center justify-center gap-3">
-                <UIcon name="i-lucide-refresh-cw" class="w-5 h-5 text-primary animate-spin" />
-                <span class="font-bold text-sm text-neutral-200">{{ processState.status }}</span>
-              </div>
-
-              <!-- Input File Card -->
-              <div class="bg-neutral-900 border border-neutral-800 rounded-xl p-6 shadow-xl space-y-4">
-                <div class="space-y-1.5">
-                  <label class="text-xs font-bold uppercase tracking-wider text-neutral-400">Source Media File</label>
-                  <div class="flex gap-2">
-                    <UInput
-                      v-model="mediaPath"
-                      readonly
-                      placeholder="Click browse to select a media file..."
-                      class="grow"
-                      size="md"
-                      :disabled="processState.active"
-                    />
-                    <UButton
-                      icon="i-lucide-file"
-                      color="neutral"
-                      variant="subtle"
-                      class="px-4"
-                      :disabled="processState.active"
-                      @click="selectFile('media')"
-                    >
-                      Browse
-                    </UButton>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Configuration Card -->
-              <div class="bg-neutral-900 border border-neutral-800 rounded-xl p-6 shadow-xl space-y-6">
-                <h3 class="text-sm font-bold uppercase tracking-widest text-neutral-400 border-b border-neutral-800 pb-2 flex items-center gap-2">
-                  <UIcon name="i-lucide-settings" class="w-4 h-4 text-primary" /> Processing Tasks
-                </h3>
-
-                <!-- Choose Action -->
-                <div class="space-y-2">
-                  <label class="text-xs font-semibold text-neutral-400">Action Type</label>
-                  <div class="flex gap-3">
-                    <UButton
-                      class="flex-1 justify-center py-2.5"
-                      :color="editAction === 'metadata' ? 'primary' : 'neutral'"
-                      :variant="editAction === 'metadata' ? 'solid' : 'outline'"
-                      icon="i-lucide-edit"
-                      :disabled="processState.active"
-                      @click="editAction = 'metadata'"
-                    >
-                      Edit Metadata Only
-                    </UButton>
-                    <UButton
-                      class="flex-1 justify-center py-2.5"
-                      :color="editAction === 'convert' ? 'primary' : 'neutral'"
-                      :variant="editAction === 'convert' ? 'solid' : 'outline'"
-                      icon="i-lucide-refresh-cw"
-                      :disabled="processState.active"
-                      @click="editAction = 'convert'"
-                    >
-                      Convert & Edit
-                    </UButton>
-                  </div>
-                </div>
-
-                <!-- Format Choice (visible only when converting) -->
-                <div v-if="editAction === 'convert'" class="space-y-2 animate-fadeIn">
-                  <label class="text-xs font-semibold text-neutral-400">Target Output Format</label>
-                  <USelect
-                    v-model="convertFormat"
-                    :items="['mp3', 'm4a', 'wav', 'mp4', 'mkv']"
-                    size="md"
-                    class="w-full"
-                    :disabled="processState.active"
-                  />
-                </div>
-
-                <!-- Metadata Fields -->
-                <div class="border-t border-neutral-800 pt-4 space-y-4">
-                  <h4 class="text-xs font-bold uppercase tracking-wider text-neutral-400 mb-2">Write Metadata tags</h4>
-                  
-                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div class="space-y-1.5">
-                      <label class="text-[11px] text-neutral-400">Title</label>
-                      <UInput v-model="metaTitle" placeholder="Song/Video Title" size="md" :disabled="processState.active" />
-                    </div>
-                    <div class="space-y-1.5">
-                      <label class="text-[11px] text-neutral-400">Artist / Channel</label>
-                      <UInput v-model="metaArtist" placeholder="Artist Name" size="md" :disabled="processState.active" />
-                    </div>
-                    <div class="space-y-1.5">
-                      <label class="text-[11px] text-neutral-400">Album</label>
-                      <UInput v-model="metaAlbum" placeholder="Album Name" size="md" :disabled="processState.active" />
-                    </div>
-                    <div class="grid grid-cols-2 gap-3">
-                      <div class="space-y-1.5">
-                        <label class="text-[11px] text-neutral-400">Year</label>
-                        <UInput v-model="metaYear" placeholder="e.g. 2026" size="md" :disabled="processState.active" />
-                      </div>
-                      <div class="space-y-1.5">
-                        <label class="text-[11px] text-neutral-400">Genre</label>
-                        <UInput v-model="metaGenre" placeholder="e.g. Rock" size="md" :disabled="processState.active" />
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- Cover Art Selector -->
-                  <div class="space-y-1.5 pt-2">
-                    <label class="text-[11px] text-neutral-400">Attach Custom Cover Image (Album Art)</label>
-                    <div class="flex gap-2">
-                      <UInput
-                        v-model="coverPath"
-                        readonly
-                        placeholder="Select JPEG/PNG/WebP cover image..."
-                        class="grow"
-                        size="md"
-                        :disabled="processState.active"
-                      />
-                      <UButton
-                        icon="i-lucide-image"
-                        color="neutral"
-                        variant="subtle"
-                        class="px-4"
-                        :disabled="processState.active"
-                        @click="selectFile('cover')"
-                      >
-                        Browse
-                      </UButton>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Target Output Directory -->
-                <div class="border-t border-neutral-800 pt-4 space-y-1.5">
-                  <label class="text-xs font-bold uppercase tracking-wider text-neutral-400">Output Folder</label>
-                  <div class="flex gap-2">
-                    <UInput
-                      v-model="editOutputDir"
-                      readonly
-                      placeholder="Select output folder..."
-                      class="grow"
-                      size="md"
-                      :disabled="processState.active"
-                    />
-                    <UButton
-                      icon="i-lucide-folder"
-                      color="neutral"
-                      variant="subtle"
-                      class="px-4"
-                      :disabled="processState.active"
-                      @click="selectDirectory"
-                    >
-                      Browse
-                    </UButton>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Start Button (Only visible when not active) -->
-              <div v-if="!processState.active" class="space-y-4">
-                <UButton
-                  size="xl"
-                  color="primary"
-                  class="w-full py-4 justify-center text-md font-bold shadow-xl shadow-primary-950/20"
-                  icon="i-lucide-settings"
-                  @click="triggerProcess"
-                >
-                  Apply Changes
-                </UButton>
-              </div>
-            </div>
-
+            <!-- METADATA EDITOR TAB -->
+            <MetadataEditor
+              v-if="activeTab === 'editor'"
+              v-model:editAction="editAction"
+              v-model:convertFormat="convertFormat"
+              v-model:metaTitle="metaTitle"
+              v-model:metaArtist="metaArtist"
+              v-model:metaAlbum="metaAlbum"
+              v-model:metaYear="metaYear"
+              v-model:metaGenre="metaGenre"
+              :mediaPath="mediaPath"
+              :coverPath="coverPath"
+              :editOutputDir="editOutputDir"
+              :processState="processState"
+              @select-file="selectFile"
+              @select-directory="selectDirectory"
+              @trigger-process="triggerProcess"
+            />
           </div>
 
-          <!-- Right Column: Output Console & Download Info -->
-          <div class="lg:col-span-5 space-y-4">
-            <div class="bg-neutral-950 border border-neutral-800 rounded-xl p-4 shadow-xl space-y-2 font-mono text-xs h-[400px] flex flex-col">
-              <div class="flex justify-between items-center text-neutral-400 border-b border-neutral-800 pb-1.5 mb-2 shrink-0">
-                <span class="flex items-center gap-1.5">
-                  <UIcon name="i-lucide-terminal" class="w-3.5 h-3.5 animate-pulse text-primary" v-if="downloadState.active || processState.active" />
-                  <UIcon name="i-lucide-terminal" class="w-3.5 h-3.5" v-else />
-                  Output Console
-                </span>
-                <UButton
-                  v-if="logMessages.length > 0"
-                  size="xs"
-                  color="neutral"
-                  variant="ghost"
-                  @click="logMessages = []"
-                >
-                  Clear Log
-                </UButton>
-              </div>
-              <div ref="consoleBox" class="grow overflow-y-auto space-y-1 scrollbar-thin scrollbar-thumb-neutral-800 scrollbar-track-transparent">
-                <div v-for="(line, idx) in logMessages" :key="idx" class="whitespace-pre-wrap leading-relaxed select-text font-mono text-left">
-                  {{ line }}
-                </div>
-                <!-- Idle Placeholder -->
-                <div v-if="logMessages.length === 0" class="text-neutral-500 text-center py-24 select-none">
-                  Console is idle. Download logs will appear here.
-                </div>
-              </div>
-            </div>
-
-            <!-- Downloading Status Card (Shown under the console when downloading) -->
-            <div v-if="downloadState.active" class="bg-neutral-900 border border-neutral-800 rounded-xl p-4 shadow-xl space-y-3 animate-fadeIn">
-              <div class="flex items-center justify-between text-xs text-neutral-400">
-                <span class="flex items-center gap-1.5 text-primary font-bold animate-pulse">
-                  <UIcon name="i-lucide-refresh-cw" class="w-3.5 h-3.5 animate-spin" />
-                  {{ downloadState.status || 'Downloading...' }}
-                </span>
-                <div class="flex items-center gap-2.5 font-bold text-neutral-200">
-                  <span v-if="playlistTotal > 0" class="text-xs text-neutral-400 font-semibold bg-neutral-950 px-2 py-0.5 rounded border border-neutral-800">
-                    {{ playlistIndex }}/{{ playlistTotal }}
-                  </span>
-                  <span>{{ downloadState.percent }}%</span>
-                </div>
-              </div>
-
-              <!-- Progress Bar -->
-              <UProgress :value="downloadState.percent" color="primary" class="h-2" />
-
-              <!-- Stats Block (4 Columns: Speed, Time, ETA, Size) -->
-              <div class="grid grid-cols-4 gap-2 pt-2 text-center border-t border-neutral-800">
-                <div>
-                  <p class="text-[9px] uppercase font-bold text-neutral-400">Speed</p>
-                  <p class="text-xs font-semibold text-neutral-200 mt-0.5">{{ downloadState.speed || '-' }}</p>
-                </div>
-                <div>
-                  <p class="text-[9px] uppercase font-bold text-neutral-400">Time</p>
-                  <p class="text-xs font-semibold text-neutral-200 mt-0.5">{{ downloadTimeStr }}</p>
-                </div>
-                <div>
-                  <p class="text-[9px] uppercase font-bold text-neutral-400">ETA</p>
-                  <p class="text-xs font-semibold text-neutral-200 mt-0.5">{{ downloadState.eta || '-' }}</p>
-                </div>
-                <div>
-                  <p class="text-[9px] uppercase font-bold text-neutral-400">Size</p>
-                  <p class="text-xs font-semibold text-neutral-200 mt-0.5">{{ downloadState.totalSize || '-' }}</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
+          <!-- Right Column: Output Console & Progress -->
+          <ConsolePanel
+            :downloadState="downloadState"
+            :processState="processState"
+            :isPlaylist="isPlaylist"
+            :playlistIndex="playlistIndex"
+            :playlistTotal="playlistTotal"
+            :downloadTimeStr="downloadTimeStr"
+            :logMessages="logMessages"
+            :isQueueDownloading="isQueueDownloading"
+            :downloadQueue="downloadQueue"
+            @clear-log="logMessages = []"
+          />
         </div>
 
-        <!-- Rules Tab Layout (Single Column) -->
-        <div v-else-if="activeTab === 'rules'" class="max-w-2xl mx-auto space-y-6 animate-fadeIn">
-          <div class="bg-neutral-900 border border-neutral-800 rounded-xl p-6 shadow-xl space-y-4">
-            <div>
-              <h3 class="text-sm font-bold uppercase tracking-widest text-neutral-400 flex items-center gap-2">
-                <UIcon name="i-lucide-settings-2" class="w-4 h-4 text-primary" /> Filename Renaming Rules
-              </h3>
-              <p class="text-xs text-neutral-400 mt-1 leading-relaxed">
-                Define regular expression patterns to automatically clean up filenames after downloading or converting. Rules are executed in order.
-              </p>
-            </div>
-
-            <!-- Rules List -->
-            <div class="space-y-3">
-              <div v-for="(rule, idx) in rules" :key="idx" class="flex gap-2 items-center p-3 bg-neutral-950 rounded-lg border border-neutral-800">
-                <div class="grow grid grid-cols-2 gap-3">
-                  <div class="space-y-1">
-                    <span class="text-[10px] text-neutral-500 font-bold uppercase">Pattern (Regex)</span>
-                    <UInput
-                      v-model="rule.pattern"
-                      placeholder="e.g. \((.*?)\)"
-                      size="sm"
-                      class="font-mono w-full"
-                      @change="saveRules"
-                    />
-                  </div>
-                  <div class="space-y-1">
-                    <span class="text-[10px] text-neutral-500 font-bold uppercase">Replacement</span>
-                    <UInput
-                      v-model="rule.replacement"
-                      placeholder="Empty to remove"
-                      size="sm"
-                      class="font-mono w-full"
-                      @change="saveRules"
-                    />
-                  </div>
-                </div>
-                <div class="pt-4">
-                  <UButton
-                    icon="i-lucide-trash-2"
-                    color="danger"
-                    variant="ghost"
-                    size="sm"
-                    class="text-red-500 hover:text-red-400"
-                    @click="removeRule(idx)"
-                  />
-                </div>
-              </div>
-
-              <!-- Empty State -->
-              <div v-if="rules.length === 0" class="text-center py-6 text-neutral-500 text-xs">
-                No custom rules defined. Click "Add Rule" to create one.
-              </div>
-            </div>
-
-            <!-- Action Buttons -->
-            <div class="flex justify-between pt-2">
-              <UButton
-                icon="i-lucide-plus"
-                color="primary"
-                variant="subtle"
-                size="sm"
-                @click="addRule"
-              >
-                Add Rule
-              </UButton>
-              <UButton
-                icon="i-lucide-rotate-ccw"
-                color="neutral"
-                variant="ghost"
-                size="sm"
-                @click="resetRules"
-              >
-                Reset Defaults
-              </UButton>
-            </div>
-          </div>
-        </div>
+        <!-- RENAMING RULES TAB -->
+        <RulesManager
+          v-else-if="activeTab === 'rules'"
+          :rules="rules"
+          @add-rule="addRule"
+          @remove-rule="removeRule"
+          @reset-rules="resetRules"
+          @save-rules="saveRules"
+        />
 
       </div>
-
     </div>
   </div>
 </template>
@@ -939,5 +975,22 @@ const triggerProcess = () => {
 }
 .animate-fadeIn {
   animation: fadeIn 0.25s ease-out forwards;
+}
+
+/* Playlist Scrollbar Styles */
+.playlist-scroll-container::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+}
+.playlist-scroll-container::-webkit-scrollbar-track {
+  background: var(--color-neutral-950);
+}
+.playlist-scroll-container::-webkit-scrollbar-thumb {
+  background: var(--color-neutral-800);
+  border-radius: 8px;
+  border: 4px solid var(--color-neutral-950);
+}
+.playlist-scroll-container::-webkit-scrollbar-thumb:hover {
+  background: var(--color-neutral-700);
 }
 </style>

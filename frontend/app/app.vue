@@ -30,7 +30,7 @@ useSeoMeta({
 </script>
 
 <template>
-  <UApp>
+  <UApp :toaster="{ position: 'top-center' }">
     <!-- Custom Web-based TitleBar -->
     <div class="ahk-titleBar flex items-center justify-between select-none bg-neutral-900 h-[35px] border-b border-neutral-800 text-neutral-400">
       <span class="font-semibold pl-4 tracking-[0.5px] text-[0.8rem] flex items-center gap-1.5 text-primary">

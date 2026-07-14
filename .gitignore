@@ -37,3 +37,9 @@ frontend/.output/
 # WebView2 User Data Folder
 .webview2-data/
 
+# Download Destination Directory
+yt-download/
+
+# Local Window Size Configuration
+config.json
+

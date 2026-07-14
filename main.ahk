@@ -54,6 +54,36 @@ MyWindow.AddCallBackToScript("selectDirectory", SelectDirectory)
 MyWindow.AddCallBackToScript("selectFile", SelectFile)
 MyWindow.AddCallBackToScript("startDownload", StartDownload)
 MyWindow.AddCallBackToScript("processFile", ProcessFile)
+MyWindow.AddCallBackToScript("getVideoInfo", GetVideoInfo)
+MyWindow.AddCallBackToScript("getPlaylistInfo", GetPlaylistInfo)
+
+; Load window size from config.json
+defaultWidth := 1100
+defaultHeight := 750
+showOptions := "Center"
+
+configPath := A_ScriptDir "\config.json"
+if FileExist(configPath) {
+    try {
+        configText := FileRead(configPath)
+        if (configText != "") {
+            configObj := JSON.Load(configText)
+            if IsObject(configObj) {
+                if configObj.Has("width") && configObj.Has("height") {
+                    defaultWidth := configObj["width"]
+                    defaultHeight := configObj["height"]
+                }
+                
+                if configObj.Has("maximized") && configObj["maximized"] {
+                    showOptions .= " Maximize"
+                }
+            }
+        }
+    }
+}
+
+; Register exit hook to save window size
+OnExit(SaveWindowSize)
 
 ; Browse to the compiled public folder and navigate to index.html
 MyWindow.BrowseFolder("frontend/.output/public/")
@@ -61,9 +91,48 @@ MyWindow.NavigationCompleted(OnNavigationCompleted)
 MyWindow.Navigate("index.html")
 
 ; Show the window
-MyWindow.Show("w1100 h750 Center")
+MyWindow.Show("w" defaultWidth " h" defaultHeight " " showOptions)
 
 ; Standard hotkeys for debugging
+#HotIf WinActive("ahk_group ScriptGroup")
 F12::MyWindow.OpenDevToolsWindow()
 $^t::ExitApp()
 ^r::Reload()
+#HotIf
+
+; Save window size, position, and maximized state to config.json
+SaveWindowSize(*) {
+    try {
+        ; Check if window is minimized
+        minMax := WinGetMinMax("ahk_id " MyWindow.Hwnd)
+        if (minMax == -1) {
+            return ; Don't save if minimized
+        }
+        
+        WinGetPos(,, &winW, &winH, "ahk_id " MyWindow.Hwnd)
+        
+        configPath := A_ScriptDir "\config.json"
+        configObj := Map()
+        if FileExist(configPath) {
+            try {
+                configText := FileRead(configPath)
+                if (configText != "") {
+                    loaded := JSON.Load(configText)
+                    if IsObject(loaded) {
+                        configObj := loaded
+                    }
+                }
+            }
+        }
+        
+        configObj["width"] := winW
+        configObj["height"] := winH
+        configObj["maximized"] := (minMax == 1) ? true : false
+        
+        configJsonStr := JSON.Dump(configObj, 4)
+        
+        if FileExist(configPath)
+            FileDelete(configPath)
+        FileAppend(configJsonStr, configPath, "UTF-8")
+    }
+}

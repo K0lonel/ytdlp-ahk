@@ -10,9 +10,12 @@ StartDownload(WebView, ConfigJson) {
         isPlaylist := config.Has("isPlaylist") ? config["isPlaylist"] : false
         playlistAll := config.Has("playlistAll") ? config["playlistAll"] : true
         playlistRange := config.Has("playlistRange") ? config["playlistRange"] : [1, 5]
+        playlistItems := config.Has("playlistItems") ? config["playlistItems"] : ""
         outputDir := config.Has("outputDir") ? config["outputDir"] : A_ScriptDir
         embedThumbnail := config.Has("embedThumbnail") ? config["embedThumbnail"] : false
         addMetadata := config.Has("addMetadata") ? config["addMetadata"] : false
+        enableSection := config.Has("enableSection") ? config["enableSection"] : false
+        sectionRange := config.Has("sectionRange") ? config["sectionRange"] : [0, 0]
         
         rules := []
         if (config.Has("rules") && IsObject(config["rules"])) {
@@ -47,11 +50,20 @@ StartDownload(WebView, ConfigJson) {
         ; Playlist Options
         if (isPlaylist) {
             fullCmd .= " --yes-playlist"
-            if (!playlistAll) {
+            if (playlistItems != "") {
+                fullCmd .= " --playlist-items `"" playlistItems "`""
+            } else if (!playlistAll) {
                 fullCmd .= " --playlist-items `"" playlistRange[1] "-" playlistRange[2] "`""
             }
         } else {
             fullCmd .= " --no-playlist"
+        }
+        
+        ; Section Download Options (only for non-playlist videos)
+        if (!isPlaylist && enableSection && sectionRange.Length >= 2) {
+            startSec := sectionRange[1]
+            endSec := sectionRange[2]
+            fullCmd .= ' --download-sections "*' startSec '-' endSec '"'
         }
         
         ; Embed thumbnail
@@ -189,6 +201,161 @@ StartDownload(WebView, ConfigJson) {
         try {
             if FileExist(tempLog)
                 FileDelete(tempLog)
+        }
+    }
+}
+
+; Get video info (duration & title) asynchronously
+GetVideoInfo(WebView, Url) {
+    try {
+        ytdlpPath := A_ScriptDir "\lib\yt-dlp\yt-dlp.exe"
+        tempLog := A_Temp "\ytdlp_info_" A_TickCount ".log"
+        tempErr := A_Temp "\ytdlp_info_err_" A_TickCount ".log"
+        if FileExist(tempLog)
+            FileDelete(tempLog)
+        if FileExist(tempErr)
+            FileDelete(tempErr)
+            
+        ; Print duration first, then title. Redirect stdout to tempLog, stderr to tempErr.
+        fullCmd := "`"" ytdlpPath "`" --print `"duration`" --print `"title`" --no-playlist `"" Url "`""
+        
+        pid := 0
+        Run(A_ComSpec " /c `"" fullCmd " 1> `"" tempLog "`" 2> `"" tempErr "`"", A_ScriptDir "\lib\yt-dlp", "Hide", &pid)
+        
+        if (pid == 0) {
+            WebView.ExecuteScript("window.onVideoInfoError('Failed to start yt-dlp info process.')")
+            return
+        }
+        
+        SetTimer(CheckInfo, 100)
+    } catch Error as err {
+        WebView.ExecuteScript("window.onVideoInfoError('" StrReplace(err.Message, "'", "\'") "')")
+    }
+    
+    CheckInfo() {
+        if (!ProcessExist(pid)) {
+            SetTimer(, 0)
+            infoStr := ""
+            errStr := ""
+            if FileExist(tempLog) {
+                try {
+                    infoStr := FileRead(tempLog)
+                    infoStr := Trim(infoStr, "`r`n`t ")
+                }
+            }
+            if FileExist(tempErr) {
+                try {
+                    errStr := FileRead(tempErr)
+                    errStr := Trim(errStr, "`r`n`t ")
+                }
+            }
+            
+            try {
+                if FileExist(tempLog)
+                    FileDelete(tempLog)
+                if FileExist(tempErr)
+                    FileDelete(tempErr)
+            }
+            
+            if (infoStr == "") {
+                errMsg := (errStr != "") ? errStr : "Failed to fetch video details."
+                WebView.ExecuteScript("window.onVideoInfoError('" StrReplace(errMsg, "'", "\'") "')")
+            } else {
+                ; Parse duration (first line) and title (remaining lines)
+                firstNewline := InStr(infoStr, "`n")
+                if (firstNewline) {
+                    duration := SubStr(infoStr, 1, firstNewline - 1)
+                    title := SubStr(infoStr, firstNewline + 1)
+                    
+                    duration := Trim(duration, "`r`n`t ")
+                    title := Trim(title, "`r`n`t ")
+                    
+                    escapedTitle := StrReplace(title, "\", "\\")
+                    escapedTitle := StrReplace(escapedTitle, "'", "\'")
+                    escapedTitle := StrReplace(escapedTitle, "`r", "")
+                    escapedTitle := StrReplace(escapedTitle, "`n", "\n")
+                    
+                    WebView.ExecuteScript("window.onVideoInfoSuccess('" escapedTitle "', '" duration "')")
+                } else {
+                    WebView.ExecuteScript("window.onVideoInfoError('Failed to parse video info')")
+                }
+            }
+        }
+    }
+}
+
+; Get playlist videos metadata asynchronously
+GetPlaylistInfo(WebView, Url) {
+    try {
+        ytdlpPath := A_ScriptDir "\lib\yt-dlp\yt-dlp.exe"
+        tempLog := A_Temp "\ytdlp_playlist_" A_TickCount ".log"
+        tempErr := A_Temp "\ytdlp_playlist_err_" A_TickCount ".log"
+        if FileExist(tempLog)
+            FileDelete(tempLog)
+        if FileExist(tempErr)
+            FileDelete(tempErr)
+            
+        ; Flat playlist dump JSON.
+        fullCmd := "`"" ytdlpPath "`" --flat-playlist --dump-json `"" Url "`""
+        
+        pid := 0
+        Run(A_ComSpec " /c `"" fullCmd " 1> `"" tempLog "`" 2> `"" tempErr "`"", A_ScriptDir "\lib\yt-dlp", "Hide", &pid)
+        
+        if (pid == 0) {
+            WebView.ExecuteScript("window.onPlaylistInfoError('Failed to start yt-dlp playlist process.')")
+            return
+        }
+        
+        SetTimer(CheckPlaylistInfo, 100)
+    } catch Error as err {
+        WebView.ExecuteScript("window.onPlaylistInfoError('" StrReplace(err.Message, "'", "\'") "')")
+    }
+    
+    CheckPlaylistInfo() {
+        if (!ProcessExist(pid)) {
+            SetTimer(, 0)
+            infoStr := ""
+            errStr := ""
+            if FileExist(tempLog) {
+                try {
+                    infoStr := FileRead(tempLog)
+                    infoStr := Trim(infoStr, "`r`n`t ")
+                }
+            }
+            if FileExist(tempErr) {
+                try {
+                    errStr := FileRead(tempErr)
+                    errStr := Trim(errStr, "`r`n`t ")
+                }
+            }
+            
+            try {
+                if FileExist(tempLog)
+                    FileDelete(tempLog)
+                if FileExist(tempErr)
+                    FileDelete(tempErr)
+            }
+            
+            if (infoStr == "") {
+                errMsg := (errStr != "") ? errStr : "Failed to fetch playlist details."
+                WebView.ExecuteScript("window.onPlaylistInfoError('" StrReplace(errMsg, "'", "\'") "')")
+            } else {
+                ; Split by newline and combine into a JSON array string
+                lines := StrSplit(infoStr, "`n", "`r")
+                jsonArrayStr := "["
+                loop lines.Length {
+                    line := Trim(lines[A_Index], "`r`n`t ")
+                    if (line != "") {
+                        if (jsonArrayStr != "[")
+                            jsonArrayStr .= ","
+                        jsonArrayStr .= line
+                    }
+                }
+                jsonArrayStr .= "]"
+                
+                ; Send JSON array directly to JS
+                WebView.ExecuteScript("window.onPlaylistInfoSuccess(" jsonArrayStr ")")
+            }
         }
     }
 }
